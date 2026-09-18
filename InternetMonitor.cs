@@ -45,10 +45,11 @@ public sealed class InternetMonitor : BackgroundService
             response.EnsureSuccessStatusCode();
             await _store.AppendConnectivityAsync(new(DateTimeOffset.Now, true, started.Elapsed.TotalMilliseconds, null), token);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!token.IsCancellationRequested)
         {
-            _log.LogWarning("Connectivity check failed: {Message}", ex.Message);
-            await _store.AppendConnectivityAsync(new(DateTimeOffset.Now, false, null, ex.Message), token);
+            var error = DescribeFailure(ex, "Connectivity check");
+            _log.LogWarning("Connectivity check failed: {Message}", error);
+            await _store.AppendConnectivityAsync(new(DateTimeOffset.Now, false, null, error), token);
         }
     }
 
@@ -59,18 +60,18 @@ public sealed class InternetMonitor : BackgroundService
         string? failedPhase = null, error = null;
 
         try { (latency, jitter) = await MeasureLatencyAsync(token); }
-        catch (Exception ex) when (ex is not OperationCanceledException) { failedPhase = "latency"; error = ex.Message; }
+        catch (Exception ex) when (!token.IsCancellationRequested) { failedPhase = "latency"; error = DescribeFailure(ex, "Latency test"); }
 
         if (failedPhase is null)
         {
             try { download = await MeasureDownloadAsync(token); }
-            catch (Exception ex) when (ex is not OperationCanceledException) { failedPhase = "download"; error = ex.Message; }
+            catch (Exception ex) when (!token.IsCancellationRequested) { failedPhase = "download"; error = DescribeFailure(ex, "Download test"); }
         }
 
         if (failedPhase is null)
         {
             try { upload = await MeasureUploadAsync(token); }
-            catch (Exception ex) when (ex is not OperationCanceledException) { failedPhase = "upload"; error = ex.Message; }
+            catch (Exception ex) when (!token.IsCancellationRequested) { failedPhase = "upload"; error = DescribeFailure(ex, "Upload test"); }
         }
 
         var success = failedPhase is null;
@@ -120,5 +121,12 @@ public sealed class InternetMonitor : BackgroundService
         using var response = await _clients.CreateClient("speed").PostAsync(UploadUrl, content, token);
         response.EnsureSuccessStatusCode();
         return bytes.LongLength * 8d / timer.Elapsed.TotalSeconds / 1_000_000d;
+    }
+
+    private static string DescribeFailure(Exception exception, string phase)
+    {
+        return exception is TaskCanceledException
+            ? $"{phase} timed out"
+            : $"{phase} failed: {exception.GetBaseException().Message}";
     }
 }
