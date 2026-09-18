@@ -35,6 +35,7 @@ function cycleChart(items){
   for(const [online,id] of [[true,'averageUp'],[false,'averageDown']]){
     const complete=periods.filter(p=>p.online===online&&p.complete&&!p.clipped);
     $(id).textContent=complete.length?elapsed(complete.reduce((n,p)=>n+p.duration,0)/complete.length):'—';
+    $(online?'intervalAverageUp':'intervalAverageDown').textContent=$(id).textContent;
   }
   const c=$('cycleChart'),[g,w,h,d]=size(c);g.scale(d,d);
   const left=48,bottom=h-20,top=12,plotH=Math.max(1,bottom-top),plotW=Math.max(1,w-left-8);
