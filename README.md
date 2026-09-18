@@ -19,7 +19,7 @@ The timeline heading identifies the interval selected in the graph dropdown (def
 - **Average uptime / Average outage** summarize completed observed connection periods. **Longest uptime / Longest outage** show the longest recorded periods in view; **Current streak** shows the ongoing up or down period when recent observations are available.
 - Light mint sections indicate connected periods; striped coral sections indicate outages. Muted sections represent unobserved time.
 
-Seconds are displayed vertically beneath the timeline sections, staggered to help short periods remain readable. **Hover over a section to see its duration in seconds**, including whether it is ongoing, a visible portion clipped by the selected range, or a partial observation. Hover remains useful when a longer range makes sections and labels crowded. Durations are estimates from recorded checks, not exact packet-level transition times.
+Durations in seconds are displayed horizontally beneath the timeline sections without a unit suffix. Connected durations share the upper mint row; outage durations share a separate lower coral row. Numbers may extend beyond narrow sections and overlap in crowded views. **Hover over a section to see its duration in seconds**, including whether it is ongoing, a visible portion clipped by the selected range, or a partial observation. Durations are estimates from recorded checks, not exact packet-level transition times.
 
 The **Connection-cycle durations** chart shows connected and outage periods over time, with bar height representing duration. Hover over its bars for details. The recent-outage table supplies failure details and available latency/jitter measurements before failure and at recovery for troubleshooting.
 
