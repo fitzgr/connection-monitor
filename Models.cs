@@ -17,6 +17,17 @@ public sealed record SpeedSample(
     string? FailedPhase,
     string? Error);
 
+public sealed record ConnectionIdentity(
+    DateTimeOffset Timestamp,
+    bool Success,
+    string? PublicIp,
+    string? Organization,
+    string? City,
+    string? Region,
+    string? Country,
+    string Source,
+    string? Error);
+
 public sealed class MonitorOptions
 {
     public int ConnectivityIntervalSeconds { get; set; } = 10;
