@@ -58,17 +58,18 @@ function uptimeChart(items){
   const periods=connectionPeriods(items,cut,now),barY=6,barHeight=20,x=t=>(t-cut)/(now-cut)*w;
   g.scale(d,d);g.fillStyle=css('--unobserved');g.fillRect(0,barY,w,barHeight);
   g.font='bold 10px system-ui';
-  for(const [index,p] of periods.entries()){
+  for(const p of periods){
     const left=x(p.start),width=x(p.end)-left;
     connectionBar(g,left,barY,width,barHeight,p.online);
-    const label=`${Math.round(p.duration/1000)}s`,center=Math.max(5,Math.min(w-5,left+width/2));
-    // Stagger vertical labels so adjacent short periods remain readable.
-    const labelY=barY+barHeight+6+(index%2)*34;
+    const label=String(Math.round(p.duration/1000)),center=left+width/2;
+    // Each status has a fixed row; allow labels to extend beyond narrow bars.
+    const labelY=barY+barHeight+(p.online?18:42);
     g.save();g.strokeStyle=g.fillStyle=css(p.online?'--connected':'--red');
     g.globalAlpha=.45;g.beginPath();g.moveTo(center,barY+barHeight);
-    g.lineTo(center,labelY-2);g.stroke();g.globalAlpha=1;
-    g.translate(center,labelY);g.rotate(Math.PI/2);
-    g.textAlign='left';g.textBaseline='middle';g.fillText(label,0,0);g.restore();
+    g.lineTo(center,labelY-7);g.stroke();g.globalAlpha=1;
+    const halfLabel=g.measureText(label).width/2;
+    const labelX=Math.max(halfLabel,Math.min(w-halfLabel,center));
+    g.textAlign='center';g.textBaseline='middle';g.fillText(label,labelX,labelY);g.restore();
   }
   g.textAlign='left';g.textBaseline='alphabetic';g.fillStyle=css('--muted');g.font='10px system-ui';
   g.fillText(`${hours} hours ago`,0,h-2);g.fillText('Now',w-22,h-2);
