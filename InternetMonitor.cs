@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 
@@ -77,13 +78,17 @@ public sealed class InternetMonitor : BackgroundService
         {
             using var response = await _clients.CreateClient("probe").GetAsync(ProbeUrl, token);
             response.EnsureSuccessStatusCode();
-            await _store.AppendConnectivityAsync(new(DateTimeOffset.Now, true, started.Elapsed.TotalMilliseconds, null), token);
+            await _store.AppendConnectivityAsync(new(DateTimeOffset.Now, true, started.Elapsed.TotalMilliseconds, null,
+                ProbeEndpoint: ProbeUrl, HttpStatus: (int)response.StatusCode), token);
         }
         catch (Exception ex) when (!token.IsCancellationRequested)
         {
             var error = DescribeFailure(ex, "Connectivity check");
+            var diagnostics = await DiagnoseFailureAsync(token);
             _log.LogWarning("Connectivity check failed: {Message}", error);
-            await _store.AppendConnectivityAsync(new(DateTimeOffset.Now, false, null, error), token);
+            await _store.AppendConnectivityAsync(new(DateTimeOffset.Now, false, null, error,
+                ClassifyFailure(ex), diagnostics.DnsResolved, diagnostics.DnsAddresses,
+                diagnostics.Tcp443Connected, ProbeUrl), token);
         }
     }
 
@@ -162,5 +167,49 @@ public sealed class InternetMonitor : BackgroundService
         return exception is TaskCanceledException
             ? $"{phase} timed out"
             : $"{phase} failed: {exception.GetBaseException().Message}";
+    }
+
+    private static string ClassifyFailure(Exception exception)
+    {
+        var root = exception.GetBaseException();
+        if (exception is TaskCanceledException or TimeoutException) return "timeout";
+        if (root is SocketException socket)
+        {
+            return socket.SocketErrorCode switch
+            {
+                SocketError.HostNotFound or SocketError.TryAgain or SocketError.NoData => "dns",
+                SocketError.ConnectionRefused => "connection-refused",
+                SocketError.NetworkDown or SocketError.NetworkUnreachable or SocketError.HostUnreachable => "network-unreachable",
+                _ => $"socket-{socket.SocketErrorCode.ToString().ToLowerInvariant()}"
+            };
+        }
+        if (exception is HttpRequestException) return "http-transport";
+        return exception.GetType().Name.ToLowerInvariant();
+    }
+
+    private static async Task<(bool DnsResolved, string? DnsAddresses, bool Tcp443Connected)> DiagnoseFailureAsync(CancellationToken token)
+    {
+        const string host = "speed.cloudflare.com";
+        try
+        {
+            var addresses = await Dns.GetHostAddressesAsync(host, token);
+            var addressText = string.Join(";", addresses.Select(address => address.ToString()));
+            try
+            {
+                using var tcp = new TcpClient();
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+                timeout.CancelAfter(TimeSpan.FromSeconds(3));
+                await tcp.ConnectAsync(host, 443, timeout.Token);
+                return (addresses.Length > 0, addressText, true);
+            }
+            catch when (!token.IsCancellationRequested)
+            {
+                return (addresses.Length > 0, addressText, false);
+            }
+        }
+        catch when (!token.IsCancellationRequested)
+        {
+            return (false, null, false);
+        }
     }
 }
