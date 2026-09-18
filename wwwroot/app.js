@@ -55,19 +55,20 @@ function outageWindows(items){const sorted=[...items].sort((a,b)=>new Date(a.tim
 function speedChart(items,connectivity){const c=$('speedChart'),[g,w,h,d]=size(c),hours=+$('range').value,cut=Date.now()-hours*3600000,data=items.filter(x=>new Date(x.timestamp)>=cut);g.clearRect(0,0,c.width,c.height);const actual=(s,key)=>s[key]!=null&&Number.isFinite(Number(s[key]));let max=Math.max(10,...data.flatMap(s=>['downloadMbps','uploadMbps'].filter(key=>actual(s,key)).map(key=>Number(s[key]))))*1.1,rightMax=Math.max(50,...data.flatMap(s=>['latencyMs','jitterMs'].filter(key=>actual(s,key)).map(key=>Number(s[key]))))*1.1;axes(g,w,h,d,max,rightMax);const x=t=>42+(new Date(t)-cut)/(hours*3600000)*(w-84),y=v=>15+(h-40)*(1-v/max),yr=v=>15+(h-40)*(1-v/rightMax),series=(key,color,dash,scale,points=false)=>{g.setLineDash(dash);g.strokeStyle=color;g.lineWidth=2;for(let i=1;i<data.length;i++){const previous=data[i-1],current=data[i];if(!actual(previous,key)||!actual(current,key))continue;g.beginPath();g.moveTo(x(previous.timestamp),scale(Number(previous[key])));g.lineTo(x(current.timestamp),scale(Number(current[key])));g.stroke()}if(points){g.setLineDash([]);g.fillStyle=color;for(const sample of data){if(!actual(sample,key))continue;g.beginPath();g.arc(x(sample.timestamp),scale(Number(sample[key])),3,0,Math.PI*2);g.fill()}}};for(const outage of outageWindows(connectivity).filter(o=>o.end>=cut)){const left=Math.max(42,x(Math.max(cut,outage.start))),right=Math.min(w-42,x(outage.end));g.fillStyle=css('--red')+'55';g.fillRect(left,15,Math.max(2,right-left),h-40)}for(const s of data.filter(x=>!x.success)){g.fillStyle=css('--red')+'aa';g.fillRect(x(s.timestamp)-2,15,4,h-40)}series('downloadMbps',css('--blue'),[],y);series('uploadMbps',css('--green'),[],y);series('latencyMs',css('--amber'),[],yr,true);series('jitterMs',css('--purple'),[6,4],yr,true);g.setLineDash([])}
 function uptimeChart(items){
   const c=$('uptimeChart'),[g,w,h,d]=size(c),hours=+$('range').value,now=Date.now(),cut=now-hours*3600000;
-  const periods=connectionPeriods(items,cut,now),barY=6,barHeight=Math.max(14,h-26),x=t=>(t-cut)/(now-cut)*w;
+  const periods=connectionPeriods(items,cut,now),barY=6,barHeight=20,x=t=>(t-cut)/(now-cut)*w;
   g.scale(d,d);g.fillStyle=css('--unobserved');g.fillRect(0,barY,w,barHeight);
   g.font='bold 10px system-ui';
-  for(const p of periods){
+  for(const [index,p] of periods.entries()){
     const left=x(p.start),width=x(p.end)-left;
     connectionBar(g,left,barY,width,barHeight,p.online);
-    const label=`${Math.round(p.duration/1000)}s`,labelWidth=g.measureText(label).width;
-    if(width>=labelWidth+6&&barHeight>=14){
-      const center=left+width/2;
-      g.fillStyle=css('--panel');g.fillRect(center-labelWidth/2-2,barY+barHeight/2-7,labelWidth+4,14);
-      g.fillStyle='#eef5ff';g.textAlign='center';g.textBaseline='middle';
-      g.fillText(label,center,barY+barHeight/2);
-    }
+    const label=`${Math.round(p.duration/1000)}s`,center=Math.max(5,Math.min(w-5,left+width/2));
+    // Stagger vertical labels so adjacent short periods remain readable.
+    const labelY=barY+barHeight+6+(index%2)*34;
+    g.save();g.strokeStyle=g.fillStyle=css(p.online?'--connected':'--red');
+    g.globalAlpha=.45;g.beginPath();g.moveTo(center,barY+barHeight);
+    g.lineTo(center,labelY-2);g.stroke();g.globalAlpha=1;
+    g.translate(center,labelY);g.rotate(Math.PI/2);
+    g.textAlign='left';g.textBaseline='middle';g.fillText(label,0,0);g.restore();
   }
   g.textAlign='left';g.textBaseline='alphabetic';g.fillStyle=css('--muted');g.font='10px system-ui';
   g.fillText(`${hours} hours ago`,0,h-2);g.fillText('Now',w-22,h-2);
