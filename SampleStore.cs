@@ -30,6 +30,14 @@ public sealed class SampleStore
             $"{sample.Timestamp:O},{sample.Success.ToString().ToLowerInvariant()},{Number(sample.LatencyMs)},{Number(sample.JitterMs)},{Number(sample.DownloadMbps)},{Number(sample.UploadMbps)},{sample.DurationSeconds.ToString("0.00", CultureInfo.InvariantCulture)},{Csv(sample.FailedPhase)},{Csv(sample.Error)}", token);
     }
 
+    public async Task AppendConnectionIdentityAsync(ConnectionIdentity sample, CancellationToken token)
+    {
+        await AppendJsonLineAsync("connection-identity.jsonl", sample, token);
+        await AppendCsvAsync("connection-identity.csv",
+            "timestamp,success,public_ip,organization,city,region,country,source,error",
+            $"{sample.Timestamp:O},{sample.Success.ToString().ToLowerInvariant()},{Csv(sample.PublicIp)},{Csv(sample.Organization)},{Csv(sample.City)},{Csv(sample.Region)},{Csv(sample.Country)},{Csv(sample.Source)},{Csv(sample.Error)}", token);
+    }
+
     public async Task<IReadOnlyList<T>> ReadRecentAsync<T>(string fileName, int limit, CancellationToken token)
     {
         var path = Path.Combine(_dataDirectory, fileName);
