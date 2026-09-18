@@ -101,7 +101,7 @@ public sealed class InternetMonitor : BackgroundService
             var timestamp = DateTimeOffset.Now;
             var latency = started.Elapsed.TotalMilliseconds;
             var maximumJitterGap = TimeSpan.FromSeconds(Math.Max(2, _options.ConnectivityIntervalSeconds) * 3);
-            var jitter = _lastConnectivityLatency.HasValue && _lastConnectivitySuccess.HasValue &&
+            double? jitter = _lastConnectivityLatency.HasValue && _lastConnectivitySuccess.HasValue &&
                 timestamp - _lastConnectivitySuccess.Value <= maximumJitterGap
                     ? Math.Abs(latency - _lastConnectivityLatency.Value)
                     : null;
