@@ -8,6 +8,8 @@ The active local route is identified as Wi-Fi, wired Ethernet, or another interf
 
 The default one-hour graph overlays the 10-second connectivity checks on the periodic speed measurements, allowing outages shorter than two minutes to remain visible. When an HTTPS probe fails, the monitor classifies the transport failure and separately tests DNS resolution and TCP port 443. These diagnostics, the probe endpoint, HTTP status, resolved addresses, and error details are retained in `connectivity-diagnostics.csv` and presented in the recent-outages table for ISP support. The original compact `connectivity.csv` remains available for simple analysis.
 
+The combined chart plots download and upload speed against the left Mbps axis. Latency (solid amber) and jitter (dashed purple) use an independently scaled right millisecond axis, keeping transmission-delay spikes visible without distorting the bandwidth scale.
+
 ## Initial monitoring schedule
 
 - Connectivity check every **10 seconds**
