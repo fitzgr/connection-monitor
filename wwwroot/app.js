@@ -31,6 +31,8 @@ function connectionPeriods(items,cut,now,gap=25000){
 function cycleChart(items){
   const now=Date.now(),hours=+$('range').value,cut=now-hours*3600000;
   const periods=connectionPeriods(items,cut,now),current=periods.find(p=>p.current);
+  const upPeriods=periods.filter(p=>p.online);
+  $('longestUptime').textContent=upPeriods.length?elapsed(Math.max(...upPeriods.map(p=>p.duration))):'—';
   $('cycleCurrent').textContent=current?`${current.online?'Connected':'Offline'} for: ${elapsed(current.duration)}${current.clipped?' (in range)':''}`:'Current state: awaiting fresh check';
   for(const [online,id] of [[true,'averageUp'],[false,'averageDown']]){
     const complete=periods.filter(p=>p.online===online&&p.complete&&!p.clipped);
