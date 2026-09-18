@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Connection Monitor</title><link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main>
+  <header><div><h1>Connection Monitor</h1><p>Local evidence of outages and connection speed</p></div><span id="badge">Starting…</span></header>
+  <section class="cards">
+    <article><label>Connection</label><strong id="connection">—</strong><small id="lastCheck">Waiting for first check</small></article>
+    <article><label>Download</label><strong><span id="down">—</span> <i>Mbps</i></strong><small>Latest full test</small></article>
+    <article><label>Upload</label><strong><span id="up">—</span> <i>Mbps</i></strong><small>Latest full test</small></article>
+    <article><label>Latency / jitter</label><strong><span id="latency">—</span> / <span id="jitter">—</span> <i>ms</i></strong><small id="testStatus">Latest full test</small></article>
+  </section>
+  <section class="panel"><div class="panel-title"><div><h2>Speed over time</h2><p>Failed speed tests are marked as outages.</p></div><select id="range"><option value="24">24 hours</option><option value="168">7 days</option><option value="720">30 days</option></select></div><canvas id="speedChart"></canvas><div class="legend"><span class="download">Download</span><span class="upload">Upload</span><span class="outage">Outage</span></div></section>
+  <section class="panel"><div class="panel-title"><div><h2>Connectivity timeline</h2><p>Each red section is a failed 10-second check.</p></div></div><canvas id="uptimeChart"></canvas></section>
+  <footer>Data stays on this computer in the <code>data</code> folder. Dashboard refreshes every 10 seconds.</footer>
+</main><script src="app.js"></script>
+</body></html>
