@@ -15,8 +15,9 @@
     <article class="provider"><label>Service provider</label><strong id="provider">Detecting…</strong><small id="providerLocation">Public connection identity</small></article>
     <article class="provider"><label>Public IP</label><strong id="publicIp">—</strong><small id="identitySource">Source: ipinfo.io</small></article>
   </section>
-  <section class="panel"><div class="panel-title"><div><h2>Speed over time</h2><p>Failed speed tests are marked as outages.</p></div><select id="range"><option value="24">24 hours</option><option value="168">7 days</option><option value="720">30 days</option></select></div><canvas id="speedChart"></canvas><div class="legend"><span class="download">Download</span><span class="upload">Upload</span><span class="outage">Outage</span></div></section>
+  <section class="panel"><div class="panel-title"><div><h2>Speed and outages</h2><p>Full speed tests plus 10-second connectivity checks. Red bands preserve short outages.</p></div><select id="range"><option value="1" selected>1 hour — detailed</option><option value="6">6 hours</option><option value="24">24 hours</option><option value="168">7 days</option><option value="720">30 days</option></select></div><canvas id="speedChart"></canvas><div class="legend"><span class="download">Download</span><span class="upload">Upload</span><span class="outage">Connectivity failure</span></div></section>
   <section class="panel"><div class="panel-title"><div><h2>Connectivity timeline</h2><p>Each red section is a failed 10-second check.</p></div></div><canvas id="uptimeChart"></canvas></section>
+  <section class="panel"><div class="panel-title"><div><h2>Recent outage diagnostics</h2><p>Failure evidence suitable for ISP technical support.</p></div></div><div class="table-wrap"><table><thead><tr><th>Started</th><th>Duration</th><th>Failure</th><th>DNS</th><th>TCP 443</th><th>Detail</th></tr></thead><tbody id="outages"><tr><td colspan="6">No outages recorded</td></tr></tbody></table></div></section>
   <footer>Data stays on this computer in the <code>data</code> folder. Dashboard refreshes every 10 seconds.</footer>
 </main><script src="app.js"></script>
 </body></html>
