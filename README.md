@@ -4,6 +4,8 @@ A small Windows app that continuously records internet availability and periodic
 
 The dashboard also identifies the public connection using `ipinfo.io`: service provider/ASN, public IP, city, region, and country. A snapshot is taken at startup and every six hours (or retried after five minutes when unavailable) and saved locally so provider or public-IP changes can be documented.
 
+The default one-hour graph overlays the 10-second connectivity checks on the periodic speed measurements, allowing outages shorter than two minutes to remain visible. When an HTTPS probe fails, the monitor classifies the transport failure and separately tests DNS resolution and TCP port 443. These diagnostics, the probe endpoint, HTTP status, resolved addresses, and error details are retained in `connectivity-diagnostics.csv` and presented in the recent-outages table for ISP support. The original compact `connectivity.csv` remains available for simple analysis.
+
 ## Initial monitoring schedule
 
 - Connectivity check every **10 seconds**
