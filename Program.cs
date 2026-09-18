@@ -20,12 +20,16 @@ app.MapGet("/api/speed-tests", (SampleStore store, CancellationToken token) =>
     store.ReadRecentAsync<SpeedSample>("speed-tests.jsonl", 2016, token));
 app.MapGet("/api/connection-identity", (SampleStore store, CancellationToken token) =>
     store.ReadRecentAsync<ConnectionIdentity>("connection-identity.jsonl", 100, token));
-app.MapGet("/api/status", async (SampleStore store, CancellationToken token) => new
+app.MapGet("/api/status", async (SampleStore store, CancellationToken token) =>
 {
-    connectivity = (await store.ReadRecentAsync<ConnectivitySample>("connectivity.jsonl", 1, token)).LastOrDefault(),
-    speedTest = (await store.ReadRecentAsync<SpeedSample>("speed-tests.jsonl", 1, token)).LastOrDefault(),
-    connectionIdentity = (await store.ReadRecentAsync<ConnectionIdentity>("connection-identity.jsonl", 1, token)).LastOrDefault(),
-    intervals = new { options.ConnectivityIntervalSeconds, options.SpeedTestIntervalMinutes }
+    var identities = await store.ReadRecentAsync<ConnectionIdentity>("connection-identity.jsonl", 100, token);
+    return new
+    {
+        connectivity = (await store.ReadRecentAsync<ConnectivitySample>("connectivity.jsonl", 1, token)).LastOrDefault(),
+        speedTest = (await store.ReadRecentAsync<SpeedSample>("speed-tests.jsonl", 1, token)).LastOrDefault(),
+        connectionIdentity = identities.LastOrDefault(identity => identity.Success) ?? identities.LastOrDefault(),
+        intervals = new { options.ConnectivityIntervalSeconds, options.SpeedTestIntervalMinutes }
+    };
 });
 
 await app.RunAsync();
