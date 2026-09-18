@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net.Http.Headers;
+using System.Text.Json;
 using Microsoft.Extensions.Options;
 
 public sealed class InternetMonitor : BackgroundService
@@ -7,11 +8,13 @@ public sealed class InternetMonitor : BackgroundService
     private const string ProbeUrl = "https://speed.cloudflare.com/cdn-cgi/trace";
     private const string DownloadUrl = "https://speed.cloudflare.com/__down";
     private const string UploadUrl = "https://speed.cloudflare.com/__up";
+    private const string ConnectionIdentityUrl = "https://ipinfo.io/json";
     private readonly IHttpClientFactory _clients;
     private readonly SampleStore _store;
     private readonly MonitorOptions _options;
     private readonly ILogger<InternetMonitor> _log;
     private DateTimeOffset _nextSpeedTest = DateTimeOffset.MinValue;
+    private DateTimeOffset _nextIdentityCheck = DateTimeOffset.MinValue;
 
     public InternetMonitor(IHttpClientFactory clients, SampleStore store,
         IOptions<MonitorOptions> options, ILogger<InternetMonitor> log)
@@ -27,12 +30,43 @@ public sealed class InternetMonitor : BackgroundService
         while (!stoppingToken.IsCancellationRequested)
         {
             await RunConnectivityCheckAsync(stoppingToken);
+            if (DateTimeOffset.UtcNow >= _nextIdentityCheck)
+            {
+                var identityFound = await RunConnectionIdentityCheckAsync(stoppingToken);
+                _nextIdentityCheck = DateTimeOffset.UtcNow.Add(identityFound ? TimeSpan.FromHours(6) : TimeSpan.FromMinutes(5));
+            }
             if (DateTimeOffset.UtcNow >= _nextSpeedTest)
             {
                 await RunSpeedTestAsync(stoppingToken);
                 _nextSpeedTest = DateTimeOffset.UtcNow.AddMinutes(Math.Max(1, _options.SpeedTestIntervalMinutes));
             }
             await Task.Delay(TimeSpan.FromSeconds(Math.Max(2, _options.ConnectivityIntervalSeconds)), stoppingToken);
+        }
+    }
+
+    private async Task<bool> RunConnectionIdentityCheckAsync(CancellationToken token)
+    {
+        try
+        {
+            using var response = await _clients.CreateClient("identity").GetAsync(ConnectionIdentityUrl, token);
+            response.EnsureSuccessStatusCode();
+            await using var stream = await response.Content.ReadAsStreamAsync(token);
+            using var json = await JsonDocument.ParseAsync(stream, cancellationToken: token);
+            var root = json.RootElement;
+            string? Read(string property) => root.TryGetProperty(property, out var value) ? value.GetString() : null;
+            var identity = new ConnectionIdentity(DateTimeOffset.Now, true, Read("ip"), Read("org"),
+                Read("city"), Read("region"), Read("country"), "ipinfo.io", null);
+            await _store.AppendConnectionIdentityAsync(identity, token);
+            _log.LogInformation("Connection provider: {Organization}; public IP: {PublicIp}", identity.Organization, identity.PublicIp);
+            return true;
+        }
+        catch (Exception ex) when (!token.IsCancellationRequested)
+        {
+            var error = DescribeFailure(ex, "Provider lookup");
+            await _store.AppendConnectionIdentityAsync(new(DateTimeOffset.Now, false, null, null, null, null, null,
+                "ipinfo.io", error), token);
+            _log.LogWarning("Connection provider lookup failed: {Message}", error);
+            return false;
         }
     }
 
