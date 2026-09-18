@@ -13,7 +13,8 @@ public sealed record ConnectivitySample(
     string? DnsAddresses = null,
     bool? Tcp443Connected = null,
     string? ProbeEndpoint = null,
-    int? HttpStatus = null);
+    int? HttpStatus = null,
+    double? JitterMs = null);
 
 public sealed record SpeedSample(
     DateTimeOffset Timestamp,
