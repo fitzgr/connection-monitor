@@ -4,7 +4,13 @@ public sealed record ConnectivitySample(
     DateTimeOffset Timestamp,
     bool Online,
     double? LatencyMs,
-    string? Error);
+    string? Error,
+    string? FailureType = null,
+    bool? DnsResolved = null,
+    string? DnsAddresses = null,
+    bool? Tcp443Connected = null,
+    string? ProbeEndpoint = null,
+    int? HttpStatus = null);
 
 public sealed record SpeedSample(
     DateTimeOffset Timestamp,
