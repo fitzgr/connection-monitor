@@ -17,6 +17,7 @@ public sealed class InternetMonitor : BackgroundService
     private readonly ILogger<InternetMonitor> _log;
     private DateTimeOffset _nextSpeedTest = DateTimeOffset.MinValue;
     private DateTimeOffset _nextIdentityCheck = DateTimeOffset.MinValue;
+    private Task? _identityCheckTask;
 
     public InternetMonitor(IHttpClientFactory clients, SampleStore store,
         IOptions<MonitorOptions> options, ILogger<InternetMonitor> log)
@@ -32,10 +33,10 @@ public sealed class InternetMonitor : BackgroundService
         while (!stoppingToken.IsCancellationRequested)
         {
             await RunConnectivityCheckAsync(stoppingToken);
-            if (DateTimeOffset.UtcNow >= _nextIdentityCheck)
+            if (DateTimeOffset.UtcNow >= _nextIdentityCheck && (_identityCheckTask is null || _identityCheckTask.IsCompleted))
             {
-                var identityFound = await RunConnectionIdentityCheckAsync(stoppingToken);
-                _nextIdentityCheck = DateTimeOffset.UtcNow.Add(identityFound ? TimeSpan.FromHours(6) : TimeSpan.FromMinutes(5));
+                _nextIdentityCheck = DateTimeOffset.UtcNow.AddMinutes(1);
+                _identityCheckTask = RunConnectionIdentityWithRetriesAsync(stoppingToken);
             }
             if (DateTimeOffset.UtcNow >= _nextSpeedTest)
             {
@@ -44,6 +45,22 @@ public sealed class InternetMonitor : BackgroundService
             }
             await Task.Delay(TimeSpan.FromSeconds(Math.Max(2, _options.ConnectivityIntervalSeconds)), stoppingToken);
         }
+    }
+
+    private async Task RunConnectionIdentityWithRetriesAsync(CancellationToken token)
+    {
+        var retryDelays = new[] { TimeSpan.Zero, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30) };
+        foreach (var delay in retryDelays)
+        {
+            if (delay > TimeSpan.Zero) await Task.Delay(delay, token);
+            if (await RunConnectionIdentityCheckAsync(token))
+            {
+                _nextIdentityCheck = DateTimeOffset.UtcNow.AddHours(6);
+                return;
+            }
+        }
+
+        _nextIdentityCheck = DateTimeOffset.UtcNow.AddMinutes(1);
     }
 
     private async Task<bool> RunConnectionIdentityCheckAsync(CancellationToken token)
