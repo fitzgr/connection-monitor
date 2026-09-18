@@ -20,6 +20,9 @@ public sealed class SampleStore
         await AppendCsvAsync("connectivity.csv",
             "timestamp,online,latency_ms,error",
             $"{sample.Timestamp:O},{sample.Online.ToString().ToLowerInvariant()},{Number(sample.LatencyMs)},{Csv(sample.Error)}", token);
+        await AppendCsvAsync("connectivity-diagnostics.csv",
+            "timestamp,online,latency_ms,failure_type,dns_resolved,dns_addresses,tcp_443_connected,probe_endpoint,http_status,error",
+            $"{sample.Timestamp:O},{sample.Online.ToString().ToLowerInvariant()},{Number(sample.LatencyMs)},{Csv(sample.FailureType)},{Boolean(sample.DnsResolved)},{Csv(sample.DnsAddresses)},{Boolean(sample.Tcp443Connected)},{Csv(sample.ProbeEndpoint)},{sample.HttpStatus?.ToString(CultureInfo.InvariantCulture) ?? ""},{Csv(sample.Error)}", token);
     }
 
     public async Task AppendSpeedAsync(SpeedSample sample, CancellationToken token)
@@ -72,5 +75,6 @@ public sealed class SampleStore
     }
 
     private static string Number(double? value) => value?.ToString("0.00", CultureInfo.InvariantCulture) ?? "";
+    private static string Boolean(bool? value) => value?.ToString().ToLowerInvariant() ?? "";
     private static string Csv(string? value) => value is null ? "" : $"\"{value.Replace("\"", "\"\"")}\"";
 }
