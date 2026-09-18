@@ -27,4 +27,4 @@ main{width:100%;padding-left:12px;padding-right:12px}
 /* Connection status palette; upload retains its separate green series. */
 :root{--connected:#A7F3D0;--red:#FF7385;--unobserved:#334155}
 
-.reliability-metrics{grid-template-columns:repeat(4,minmax(0,1fr))}
+.reliability-metrics{grid-template-columns:repeat(5,minmax(0,1fr))}
