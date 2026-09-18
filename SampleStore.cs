@@ -23,6 +23,9 @@ public sealed class SampleStore
         await AppendCsvAsync("connectivity-diagnostics.csv",
             "timestamp,online,latency_ms,failure_type,dns_resolved,dns_addresses,tcp_443_connected,probe_endpoint,http_status,error",
             $"{sample.Timestamp:O},{sample.Online.ToString().ToLowerInvariant()},{Number(sample.LatencyMs)},{Csv(sample.FailureType)},{Boolean(sample.DnsResolved)},{Csv(sample.DnsAddresses)},{Boolean(sample.Tcp443Connected)},{Csv(sample.ProbeEndpoint)},{sample.HttpStatus?.ToString(CultureInfo.InvariantCulture) ?? ""},{Csv(sample.Error)}", token);
+        await AppendCsvAsync("connectivity-quality.csv",
+            "timestamp,online,latency_ms,jitter_ms",
+            $"{sample.Timestamp:O},{sample.Online.ToString().ToLowerInvariant()},{Number(sample.LatencyMs)},{Number(sample.JitterMs)}", token);
     }
 
     public async Task AppendSpeedAsync(SpeedSample sample, CancellationToken token)
