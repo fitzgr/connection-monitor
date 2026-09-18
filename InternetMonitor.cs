@@ -18,6 +18,8 @@ public sealed class InternetMonitor : BackgroundService
     private DateTimeOffset _nextSpeedTest = DateTimeOffset.MinValue;
     private DateTimeOffset _nextIdentityCheck = DateTimeOffset.MinValue;
     private Task? _identityCheckTask;
+    private double? _lastConnectivityLatency;
+    private DateTimeOffset? _lastConnectivitySuccess;
 
     public InternetMonitor(IHttpClientFactory clients, SampleStore store,
         IOptions<MonitorOptions> options, ILogger<InternetMonitor> log)
@@ -96,8 +98,17 @@ public sealed class InternetMonitor : BackgroundService
         {
             using var response = await _clients.CreateClient("probe").GetAsync(ProbeUrl, token);
             response.EnsureSuccessStatusCode();
-            await _store.AppendConnectivityAsync(new(DateTimeOffset.Now, true, started.Elapsed.TotalMilliseconds, null,
-                ProbeEndpoint: ProbeUrl, HttpStatus: (int)response.StatusCode), token);
+            var timestamp = DateTimeOffset.Now;
+            var latency = started.Elapsed.TotalMilliseconds;
+            var maximumJitterGap = TimeSpan.FromSeconds(Math.Max(2, _options.ConnectivityIntervalSeconds) * 3);
+            var jitter = _lastConnectivityLatency.HasValue && _lastConnectivitySuccess.HasValue &&
+                timestamp - _lastConnectivitySuccess.Value <= maximumJitterGap
+                    ? Math.Abs(latency - _lastConnectivityLatency.Value)
+                    : null;
+            await _store.AppendConnectivityAsync(new(timestamp, true, latency, null,
+                ProbeEndpoint: ProbeUrl, HttpStatus: (int)response.StatusCode, JitterMs: jitter), token);
+            _lastConnectivityLatency = latency;
+            _lastConnectivitySuccess = timestamp;
         }
         catch (Exception ex) when (!token.IsCancellationRequested)
         {
