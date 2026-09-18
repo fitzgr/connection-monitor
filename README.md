@@ -10,6 +10,19 @@ The default one-hour graph overlays the 10-second connectivity checks on the per
 
 The combined chart plots download and upload speed against the left Mbps axis. Latency (solid amber) and jitter (dashed purple) use an independently scaled right millisecond axis, keeping transmission-delay spikes visible without distorting the bandwidth scale.
 
+## Reading the connectivity timeline
+
+The timeline heading identifies the interval selected in the graph dropdown (default: **1 hour — detailed**). Its coverage text shows how much of that interval has recorded observations. Periods when the app was not collecting data are unobserved gaps, not assumed uptime or outages.
+
+- **Connected** and **Outage** show accumulated durations within the selected interval. Their percentages use observed time only: connected time divided by connected plus outage time, and outage time divided by the same total.
+- **Observed uptime** is the connected percentage. Coverage is a separate percentage of the entire selected interval.
+- **Average uptime / Average outage** summarize completed observed connection periods. **Longest uptime / Longest outage** show the longest recorded periods in view; **Current streak** shows the ongoing up or down period when recent observations are available.
+- Light mint sections indicate connected periods; striped coral sections indicate outages. Muted sections represent unobserved time.
+
+Seconds are displayed vertically beneath the timeline sections, staggered to help short periods remain readable. **Hover over a section to see its duration in seconds**, including whether it is ongoing, a visible portion clipped by the selected range, or a partial observation. Hover remains useful when a longer range makes sections and labels crowded. Durations are estimates from recorded checks, not exact packet-level transition times.
+
+The **Connection-cycle durations** chart shows connected and outage periods over time, with bar height representing duration. Hover over its bars for details. The recent-outage table supplies failure details and available latency/jitter measurements before failure and at recovery for troubleshooting.
+
 ## Initial monitoring schedule
 
 - Connectivity check every **10 seconds**
