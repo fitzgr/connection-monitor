@@ -23,3 +23,6 @@ main{width:100%;padding-left:12px;padding-right:12px}
 .cycle-panel canvas{flex:1;min-height:35px;height:70px}
 .cycle-panel small{white-space:normal;font-size:9px}
 @media(max-width:1200px),(max-height:720px){.side-panels{grid-template-rows:180px 210px 360px}}
+
+/* Connection status palette; upload retains its separate green series. */
+:root{--connected:#69B7FF;--red:#FF7385;--unobserved:#334155}
