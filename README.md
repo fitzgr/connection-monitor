@@ -2,7 +2,7 @@
 
 A small Windows app that continuously records internet availability and periodically measures download speed, upload speed, latency, and jitter. Failed tests are written as explicit outage records and displayed in the local dashboard. If a test fails partway through—such as after download but before upload—the completed measurements are retained and the failed phase is identified.
 
-The dashboard also identifies the public connection using `ipinfo.io`: service provider/ASN, public IP, city, region, and country. A snapshot is taken at startup and every six hours (or retried after five minutes when unavailable) and saved locally so provider or public-IP changes can be documented.
+The dashboard also identifies the public connection using `ipinfo.io`: service provider/ASN, public IP, city, region, and country. A snapshot is taken at startup and every six hours. A timeout triggers background retries after 10 and 30 seconds, followed by retries every minute until successful. Provider lookup never pauses the 10-second connectivity monitor. Results are saved locally so provider or public-IP changes can be documented.
 
 The active local route is identified as Wi-Fi, wired Ethernet, or another interface type. The dashboard also reports the adapter name, local IP address, and negotiated link speed. Detection follows the interface Windows actually selects for outbound internet traffic, so an unused Wi-Fi adapter does not cause a wired connection to be mislabeled.
 
