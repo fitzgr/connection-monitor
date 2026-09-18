@@ -28,6 +28,7 @@ app.MapGet("/api/status", async (SampleStore store, CancellationToken token) =>
         connectivity = (await store.ReadRecentAsync<ConnectivitySample>("connectivity.jsonl", 1, token)).LastOrDefault(),
         speedTest = (await store.ReadRecentAsync<SpeedSample>("speed-tests.jsonl", 1, token)).LastOrDefault(),
         connectionIdentity = identities.LastOrDefault(identity => identity.Success) ?? identities.LastOrDefault(),
+        localConnection = LocalConnectionInfo.Detect(),
         intervals = new { options.ConnectivityIntervalSeconds, options.SpeedTestIntervalMinutes }
     };
 });
