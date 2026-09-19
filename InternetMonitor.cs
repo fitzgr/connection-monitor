@@ -20,6 +20,17 @@ public sealed class InternetMonitor : BackgroundService
     private Task? _identityCheckTask;
     private double? _lastConnectivityLatency;
     private DateTimeOffset? _lastConnectivitySuccess;
+    public string SessionId { get; private set; } = Guid.NewGuid().ToString("N");
+    private int _successes;
+    private volatile bool _requestFastCheck;
+    private DateTimeOffset _heartbeat = DateTimeOffset.UtcNow;
+    private readonly object _sessionGate = new();
+    private DateTimeOffset? _scheduledCheck;
+    public DateTimeOffset? NextConnectivityCheck
+    {
+        get { lock (_sessionGate) return _scheduledCheck; }
+        private set { lock (_sessionGate) _scheduledCheck = value; }
+    }
 
     public InternetMonitor(IHttpClientFactory clients, SampleStore store,
         IOptions<MonitorOptions> options, ILogger<InternetMonitor> log)
@@ -32,9 +43,70 @@ public sealed class InternetMonitor : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        await Task.WhenAll(ConnectivityLoopAsync(stoppingToken),
+            AuxiliaryLoopAsync(stoppingToken), WatchForSuspensionAsync(stoppingToken));
+    }
+
+    private async Task WatchForSuspensionAsync(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5), token);
+            RefreshSession();
+        }
+    }
+
+    private void RefreshSession()
+    {
+        lock (_sessionGate)
+        {
+            var now = DateTimeOffset.UtcNow;
+            if (now - _heartbeat > TimeSpan.FromSeconds(20) || now < _heartbeat)
+            {
+                SessionId = Guid.NewGuid().ToString("N");
+                _requestFastCheck = true;
+            }
+            _heartbeat = now;
+        }
+    }
+
+    private async Task ConnectivityLoopAsync(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            var due = await RunConnectivityCheckAsync(token);
+            NextConnectivityCheck = due;
+            while (DateTimeOffset.Now < due)
+            {
+                if (_requestFastCheck)
+                {
+                    _requestFastCheck = false;
+                    _successes = 0;
+                    var fastDue = DateTimeOffset.Now.AddSeconds(Math.Min(60, Math.Max(1, _options.ConnectivityIntervalSeconds)));
+                    if (fastDue < due) due = fastDue;
+                    NextConnectivityCheck = due;
+                    break;
+                }
+                await Task.Delay(TimeSpan.FromSeconds(1), token);
+            }
+            while (DateTimeOffset.Now < due)
+                await Task.Delay(TimeSpan.FromSeconds(1), token);
+        }
+    }
+
+    private DateTimeOffset ScheduleNext(bool success, DateTimeOffset timestamp)
+    {
+        _successes = success ? Math.Min(_successes + 1, 16) : 0;
+        var minimum = Math.Clamp(_options.ConnectivityIntervalSeconds, 1, 60);
+        var maximum = Math.Clamp(_options.ConnectivityMaxIntervalSeconds, minimum, 3600);
+        var seconds = success ? Math.Min(maximum, minimum * Math.Pow(2, Math.Max(0, _successes - 1))) : minimum;
+        return timestamp.AddSeconds(seconds);
+    }
+
+    private async Task AuxiliaryLoopAsync(CancellationToken stoppingToken)
+    {
         while (!stoppingToken.IsCancellationRequested)
         {
-            await RunConnectivityCheckAsync(stoppingToken);
             if (DateTimeOffset.UtcNow >= _nextIdentityCheck && (_identityCheckTask is null || _identityCheckTask.IsCompleted))
             {
                 _nextIdentityCheck = DateTimeOffset.UtcNow.AddMinutes(1);
@@ -45,7 +117,7 @@ public sealed class InternetMonitor : BackgroundService
                 await RunSpeedTestAsync(stoppingToken);
                 _nextSpeedTest = DateTimeOffset.UtcNow.AddMinutes(Math.Max(1, _options.SpeedTestIntervalMinutes));
             }
-            await Task.Delay(TimeSpan.FromSeconds(Math.Max(2, _options.ConnectivityIntervalSeconds)), stoppingToken);
+            await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
         }
     }
 
@@ -91,8 +163,10 @@ public sealed class InternetMonitor : BackgroundService
         }
     }
 
-    private async Task RunConnectivityCheckAsync(CancellationToken token)
+    private async Task<DateTimeOffset> RunConnectivityCheckAsync(CancellationToken token)
     {
+        RefreshSession();
+        var session = SessionId;
         var started = Stopwatch.StartNew();
         try
         {
@@ -100,24 +174,32 @@ public sealed class InternetMonitor : BackgroundService
             response.EnsureSuccessStatusCode();
             var timestamp = DateTimeOffset.Now;
             var latency = started.Elapsed.TotalMilliseconds;
+            var nextCheck = ScheduleNext(true, timestamp);
             var maximumJitterGap = TimeSpan.FromSeconds(Math.Max(2, _options.ConnectivityIntervalSeconds) * 3);
             double? jitter = _lastConnectivityLatency.HasValue && _lastConnectivitySuccess.HasValue &&
                 timestamp - _lastConnectivitySuccess.Value <= maximumJitterGap
                     ? Math.Abs(latency - _lastConnectivityLatency.Value)
                     : null;
             await _store.AppendConnectivityAsync(new(timestamp, true, latency, null,
-                ProbeEndpoint: ProbeUrl, HttpStatus: (int)response.StatusCode, JitterMs: jitter), token);
+                ProbeEndpoint: ProbeUrl, HttpStatus: (int)response.StatusCode, JitterMs: jitter,
+                SessionId: session, NextCheckAt: nextCheck), token);
             _lastConnectivityLatency = latency;
             _lastConnectivitySuccess = timestamp;
+            return nextCheck;
         }
         catch (Exception ex) when (!token.IsCancellationRequested)
         {
             var error = DescribeFailure(ex, "Connectivity check");
             var diagnostics = await DiagnoseFailureAsync(token);
             _log.LogWarning("Connectivity check failed: {Message}", error);
-            await _store.AppendConnectivityAsync(new(DateTimeOffset.Now, false, null, error,
+            var timestamp = DateTimeOffset.Now;
+            var nextCheck = ScheduleNext(false, timestamp);
+            _lastConnectivityLatency = null;
+            _lastConnectivitySuccess = null;
+            await _store.AppendConnectivityAsync(new(timestamp, false, null, error,
                 ClassifyFailure(ex), diagnostics.DnsResolved, diagnostics.DnsAddresses,
-                diagnostics.Tcp443Connected, ProbeUrl), token);
+                diagnostics.Tcp443Connected, ProbeUrl, SessionId: session, NextCheckAt: nextCheck), token);
+            return nextCheck;
         }
     }
 
@@ -143,6 +225,7 @@ public sealed class InternetMonitor : BackgroundService
         }
 
         var success = failedPhase is null;
+        if (!success) _requestFastCheck = true;
         var sample = new SpeedSample(DateTimeOffset.Now, success, latency, jitter, download, upload,
             overall.Elapsed.TotalSeconds, failedPhase, error);
         await _store.AppendSpeedAsync(sample, token);
@@ -221,7 +304,9 @@ public sealed class InternetMonitor : BackgroundService
         const string host = "speed.cloudflare.com";
         try
         {
-            var addresses = await Dns.GetHostAddressesAsync(host, token);
+            using var dnsTimeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+            dnsTimeout.CancelAfter(TimeSpan.FromSeconds(3));
+            var addresses = await Dns.GetHostAddressesAsync(host, dnsTimeout.Token);
             var addressText = string.Join(";", addresses.Select(address => address.ToString()));
             try
             {

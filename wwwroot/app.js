@@ -9,24 +9,35 @@ function connectionBar(g,x,y,w,h,online){
   g.restore();
 }
 
-function connectionPeriods(items,cut,now,gap=25000){
-  const samples=items.map(s=>({at:new Date(s.timestamp).getTime(),online:s.online}))
-    .filter(s=>Number.isFinite(s.at)&&s.at<=now&&typeof s.online==='boolean').sort((a,b)=>a.at-b.at);
+let monitorSessionId=null;
+function scheduledLink(a,b){
+  const at=new Date(a.timestamp).getTime(),bt=new Date(b.timestamp).getTime();
+  if(a.sessionId||b.sessionId)
+    return !!a.sessionId&&a.sessionId===b.sessionId&&bt>=at&&bt<=new Date(a.nextCheckAt).getTime()+30000;
+  return bt>=at&&bt-at<=25000;
+}
+function connectionPeriods(items,cut,now){
+  const samples=items.filter(s=>Number.isFinite(new Date(s.timestamp).getTime())&&new Date(s.timestamp)<=now&&typeof s.online==='boolean')
+    .sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));
   const periods=[];let active=null;
   for(let i=0;i<samples.length;i++){
-    const s=samples[i],next=samples[i+1];
-    const connected=next&&next.at-s.at<=gap;
-    const end=connected?next.at:Math.min(now,s.at);
-    if(!active||active.online!==s.online||active.end!==s.at){
-      active={start:s.at,end:s.at,online:s.online,complete:false,current:false};periods.push(active);
+    const s=samples[i],next=samples[i+1],at=new Date(s.timestamp).getTime();
+    const linked=next&&scheduledLink(s,next);
+    if(!active) {
+      active={start:at,end:at,online:s.online,complete:false,current:false,partial:i===0||!scheduledLink(samples[i-1],s),samples:[]};
+      periods.push(active);
     }
-    active.end=end;
-    if(connected&&next.online!==s.online)active.complete=true;
-    if(!next&&now-s.at<=gap){active.end=now;active.current=true}
-    if(!connected&&next)active=null;
+    active.samples.push(s);
+    active.end=linked?new Date(next.timestamp).getTime():at;
+    if(linked&&next.online!==s.online){active.complete=!active.partial;active=null}
+    else if(!linked){
+      const live=s.sessionId?s.sessionId===monitorSessionId&&now<=new Date(s.nextCheckAt).getTime()+30000:now-at<=25000;
+      if(!next&&live){active.end=now;active.current=true}
+      active=null;
+    }
   }
-  return periods.filter(p=>p.end>=cut&&p.end>p.start).map(p=>({...p,
-    clipped:p.start<cut,start:Math.max(p.start,cut),duration:p.end-Math.max(p.start,cut)}));
+  return periods.filter(p=>p.end>=cut).map(p=>({...p,
+    clipped:p.start<cut,start:Math.max(p.start,cut),duration:Math.max(0,p.end-Math.max(p.start,cut))}));
 }
 function cycleChart(items){
   const now=Date.now(),hours=+$('range').value,cut=now-hours*3600000;
@@ -51,7 +62,7 @@ function cycleChart(items){
 const $=id=>document.getElementById(id), css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 function size(c){const d=devicePixelRatio||1,r=c.getBoundingClientRect();c.width=r.width*d;c.height=r.height*d;return[c.getContext('2d'),r.width,r.height,d]}
 function axes(g,w,h,d,max,rightMax){g.scale(d,d);g.strokeStyle=css('--line');g.fillStyle=css('--muted');g.font='11px system-ui';for(let i=0;i<5;i++){let y=15+(h-40)*i/4;g.beginPath();g.moveTo(42,y);g.lineTo(w-42,y);g.stroke();g.fillText(Math.round(max*(4-i)/4),5,y+4);g.fillText(Math.round(rightMax*(4-i)/4),w-34,y+4)}g.fillText('Mbps',4,10);g.fillText('ms',w-22,10)}
-function outageWindows(items){const sorted=[...items].sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp)),result=[];let active=null;for(const sample of sorted){const at=new Date(sample.timestamp).getTime();if(!sample.online){if(!active||at-active.last>25000){if(active)result.push(active);active={start:at,last:at,end:at+10000,samples:[sample]}}else{active.last=at;active.end=at+10000;active.samples.push(sample)}}else if(active){active.end=at;result.push(active);active=null}}if(active)result.push(active);return result}
+function outageWindows(items){return connectionPeriods(items,-Infinity,Date.now()).filter(p=>!p.online)}
 function speedChart(items,connectivity){const c=$('speedChart'),[g,w,h,d]=size(c),hours=+$('range').value,cut=Date.now()-hours*3600000,data=items.filter(x=>new Date(x.timestamp)>=cut);g.clearRect(0,0,c.width,c.height);const actual=(s,key)=>s[key]!=null&&Number.isFinite(Number(s[key]));let max=Math.max(10,...data.flatMap(s=>['downloadMbps','uploadMbps'].filter(key=>actual(s,key)).map(key=>Number(s[key]))))*1.1,rightMax=Math.max(50,...data.flatMap(s=>['latencyMs','jitterMs'].filter(key=>actual(s,key)).map(key=>Number(s[key]))))*1.1;axes(g,w,h,d,max,rightMax);const x=t=>42+(new Date(t)-cut)/(hours*3600000)*(w-84),y=v=>15+(h-40)*(1-v/max),yr=v=>15+(h-40)*(1-v/rightMax),series=(key,color,dash,scale,points=false)=>{g.setLineDash(dash);g.strokeStyle=color;g.lineWidth=2;for(let i=1;i<data.length;i++){const previous=data[i-1],current=data[i];if(!actual(previous,key)||!actual(current,key))continue;g.beginPath();g.moveTo(x(previous.timestamp),scale(Number(previous[key])));g.lineTo(x(current.timestamp),scale(Number(current[key])));g.stroke()}if(points){g.setLineDash([]);g.fillStyle=color;for(const sample of data){if(!actual(sample,key))continue;g.beginPath();g.arc(x(sample.timestamp),scale(Number(sample[key])),3,0,Math.PI*2);g.fill()}}};for(const outage of outageWindows(connectivity).filter(o=>o.end>=cut)){const left=Math.max(42,x(Math.max(cut,outage.start))),right=Math.min(w-42,x(outage.end));g.fillStyle=css('--red')+'55';g.fillRect(left,15,Math.max(2,right-left),h-40)}for(const s of data.filter(x=>!x.success)){g.fillStyle=css('--red')+'aa';g.fillRect(x(s.timestamp)-2,15,4,h-40)}series('downloadMbps',css('--blue'),[],y);series('uploadMbps',css('--green'),[],y);series('latencyMs',css('--amber'),[],yr,true);series('jitterMs',css('--purple'),[6,4],yr,true);g.setLineDash([])}
 function uptimeChart(items){
   const c=$('uptimeChart'),[g,w,h,d]=size(c),hours=+$('range').value,now=Date.now(),cut=now-hours*3600000;
@@ -80,10 +91,19 @@ function uptimeChart(items){
 }
 function duration(ms){const seconds=Math.max(1,Math.round(ms/1000));return seconds<60?`${seconds}s`:`${Math.floor(seconds/60)}m ${seconds%60}s`}
 function elapsed(ms){const seconds=Math.max(0,Math.round(ms/1000));if(seconds<60)return`${seconds}s`;const minutes=Math.floor(seconds/60);if(minutes<60)return`${minutes}m ${seconds%60}s`;const hours=Math.floor(minutes/60);return hours<24?`${hours}h ${minutes%60}m`:`${Math.floor(hours/24)}d ${hours%24}h`}
-function renderReliability(items){const now=Date.now(),cut=now+(+$('range').value)*-3600000,data=[...items].sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp)).filter(s=>new Date(s.timestamp).getTime()>=cut),maximumGap=25000;let online=0,offline=0;for(let i=0;i<data.length;i++){const start=Math.max(cut,new Date(data[i].timestamp).getTime()),next=i+1<data.length?new Date(data[i+1].timestamp).getTime():now,span=Math.max(0,Math.min(next-start,maximumGap));data[i].online?online+=span:offline+=span}const observed=online+offline,windows=outageWindows(data),longest=windows.length?Math.max(...windows.map(w=>w.end-w.start)):0,last=data.at(-1);let streak='—';if(last&&now-new Date(last.timestamp).getTime()<=maximumGap){let start=new Date(last.timestamp).getTime();for(let i=data.length-2;i>=0;i--){const at=new Date(data[i].timestamp).getTime(),after=new Date(data[i+1].timestamp).getTime();if(data[i].online!==last.online||after-at>maximumGap)break;start=at}streak=`${last.online?'Up':'Down'} ${elapsed(now-start)}`}$('uptimePercent').textContent=observed?`${(online/observed*100).toFixed(2)}%`:'—';$('connectedTime').textContent=observed?`${elapsed(online)} (${(online/observed*100).toFixed(2)}%)`:'—';$('outageTime').textContent=observed?`${elapsed(offline)} (${(offline/observed*100).toFixed(2)}%)`:'—';
-$('timelineRange').textContent=$('range').selectedOptions[0].textContent;
-$('timelineCoverage').textContent=`Observed: ${elapsed(observed)} of ${elapsed(now-cut)} (${(observed/(now-cut)*100).toFixed(1)}% coverage). Connected/outage percentages use observed time only; gaps are excluded.`;
-$('outageCount').textContent=windows.length;$('longestOutage').textContent=windows.length?elapsed(longest):'—';$('currentStreak').textContent=streak}
+function renderReliability(items){
+  const now=Date.now(),cut=now-Number($('range').value)*3600000,periods=connectionPeriods(items,cut,now);
+  const online=periods.filter(p=>p.online).reduce((n,p)=>n+p.duration,0),offline=periods.filter(p=>!p.online).reduce((n,p)=>n+p.duration,0);
+  const observed=online+offline,windows=periods.filter(p=>!p.online),current=periods.find(p=>p.current);
+  $('uptimePercent').textContent=observed?`${(online/observed*100).toFixed(2)}%`:'—';
+  $('connectedTime').textContent=observed?`${elapsed(online)} (${(online/observed*100).toFixed(2)}%)`:'—';
+  $('outageTime').textContent=observed?`${elapsed(offline)} (${(offline/observed*100).toFixed(2)}%)`:'—';
+  $('timelineRange').textContent=$('range').selectedOptions[0].textContent;
+  $('timelineCoverage').textContent=`Estimated coverage: ${elapsed(observed)} of ${elapsed(now-cut)} (${(observed/(now-cut)*100).toFixed(1)}%). Scheduled sleeps are bridged; collection gaps excluded.`;
+  $('outageCount').textContent=windows.length;
+  $('longestOutage').textContent=windows.length?elapsed(Math.max(...windows.map(p=>p.duration))):'—';
+  $('currentStreak').textContent=current?`${current.online?'Up':'Down'} ${elapsed(current.duration)}`:'—';
+}
 function renderOutages(connectivity){const body=$('outages'),available=body.closest('.table-wrap')?.clientHeight||450,limit=Math.max(1,Math.ceil(available/20)),ordered=[...connectivity].sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp)),windows=outageWindows(ordered).reverse().slice(0,limit),quality=s=>s&&s.latencyMs!=null?`${Number(s.latencyMs).toFixed(0)} / ${s.jitterMs==null?'—':Number(s.jitterMs).toFixed(0)} ms`:'—';body.replaceChildren();if(!windows.length){const row=body.insertRow(),cell=row.insertCell();cell.colSpan=8;cell.textContent='No outages recorded';return}for(const outage of windows){const sample=outage.samples[outage.samples.length-1],before=[...ordered].reverse().find(s=>s.online&&new Date(s.timestamp).getTime()<outage.start&&outage.start-new Date(s.timestamp).getTime()<=60000),recovery=ordered.find(s=>s.online&&new Date(s.timestamp).getTime()>=outage.end&&new Date(s.timestamp).getTime()-outage.end<=60000),row=body.insertRow();const values=[new Date(outage.start).toLocaleTimeString(),duration(outage.end-outage.start),sample.failureType||'unknown',sample.dnsResolved==null?'—':sample.dnsResolved?'OK':'Failed',sample.tcp443Connected==null?'—':sample.tcp443Connected?'OK':'Failed',quality(before),quality(recovery),sample.error||'No detail'];values.forEach((value,index)=>{const cell=row.insertCell();cell.textContent=value;if((index===3||index===4)&&value==='Failed')cell.className='bad'});row.title=`Started: ${new Date(outage.start).toLocaleString()}\nBefore L/J: ${quality(before)}${before?' at '+new Date(before.timestamp).toLocaleTimeString():''}\nRecovery L/J: ${quality(recovery)}${recovery?' at '+new Date(recovery.timestamp).toLocaleTimeString():''}\nEndpoint: ${sample.probeEndpoint||'—'}\nDNS addresses: ${sample.dnsAddresses||'—'}\n${sample.error||''}`;if(body.closest('.table-wrap').scrollHeight>available){row.remove();break}}}
-async function refresh(){try{const [status,speeds,connectivity]=await Promise.all(['/api/status','/api/speed-tests','/api/connectivity'].map(u=>fetch(u).then(r=>r.json())));const c=status.connectivity,s=status.speedTest,i=status.connectionIdentity,l=status.localConnection;$('connection').textContent=c?.online?'Online':'Offline';$('lastCheck').textContent=c?new Date(c.timestamp).toLocaleString():'Waiting';$('badge').textContent=c?.online?'Monitoring':'Outage detected';$('badge').style.background=c?.online?'#174b3d':'#672b36';$('down').textContent=s?.downloadMbps?.toFixed(1)??'—';$('up').textContent=s?.uploadMbps?.toFixed(1)??'—';$('latency').textContent=s?.latencyMs?.toFixed(0)??'—';$('jitter').textContent=s?.jitterMs?.toFixed(0)??'—';$('testStatus').textContent=s?.success?'Latest full test':s?.failedPhase?`Failed during ${s.failedPhase}`:'Waiting for first test';$('provider').textContent=i?.organization??(i?.error?'Unavailable':'Detecting…');$('publicIp').textContent=i?.publicIp??'—';$('providerLocation').textContent=[i?.city,i?.region,i?.country].filter(Boolean).join(', ')||(i?.error??'Public connection identity');$('identitySource').textContent=`Source: ${i?.source??'ipinfo.io'}${i?.timestamp?' · '+new Date(i.timestamp).toLocaleString():''}`;$('connectionType').textContent=l?.type??'Unknown';$('connectionAdapter').textContent=[l?.interfaceName,l?.localIp,l?.linkSpeedMbps?`${l.linkSpeedMbps} Mbps link`:null].filter(Boolean).join(' · ')||'Active network interface unavailable';speedChart(speeds,connectivity);uptimeChart(connectivity);renderReliability(connectivity);cycleChart(connectivity);renderOutages(connectivity)}catch(e){$('badge').textContent='Dashboard error'}}
+async function refresh(){try{const [status,speeds,connectivity]=await Promise.all(['/api/status','/api/speed-tests','/api/connectivity'].map(u=>fetch(u).then(r=>r.json())));monitorSessionId=status.monitorSessionId;const c=status.connectivity,s=status.speedTest,i=status.connectionIdentity,l=status.localConnection;$('connection').textContent=c?.online?'Online':'Offline';$('lastCheck').textContent=c?`Checked ${new Date(c.timestamp).toLocaleTimeString()}`:'Waiting';$('nextCheck').textContent=status.nextConnectivityCheck?`Next: ${new Date(status.nextConnectivityCheck).toLocaleTimeString()}`:'Checking…';$('badge').textContent=c?.online?'Monitoring':'Outage detected';$('badge').style.background=c?.online?'#174b3d':'#672b36';$('down').textContent=s?.downloadMbps?.toFixed(1)??'—';$('up').textContent=s?.uploadMbps?.toFixed(1)??'—';$('latency').textContent=s?.latencyMs?.toFixed(0)??'—';$('jitter').textContent=s?.jitterMs?.toFixed(0)??'—';$('testStatus').textContent=s?.success?'Latest full test':s?.failedPhase?`Failed during ${s.failedPhase}`:'Waiting for first test';$('provider').textContent=i?.organization??(i?.error?'Unavailable':'Detecting…');$('publicIp').textContent=i?.publicIp??'—';$('providerLocation').textContent=[i?.city,i?.region,i?.country].filter(Boolean).join(', ')||(i?.error??'Public connection identity');$('identitySource').textContent=`Source: ${i?.source??'ipinfo.io'}${i?.timestamp?' · '+new Date(i.timestamp).toLocaleString():''}`;$('connectionType').textContent=l?.type??'Unknown';$('connectionAdapter').textContent=[l?.interfaceName,l?.localIp,l?.linkSpeedMbps?`${l.linkSpeedMbps} Mbps link`:null].filter(Boolean).join(' · ')||'Active network interface unavailable';speedChart(speeds,connectivity);uptimeChart(connectivity);renderReliability(connectivity);cycleChart(connectivity);renderOutages(connectivity)}catch(e){$('badge').textContent='Dashboard error'}}
 $('range').onchange=refresh;addEventListener('resize',refresh);refresh();setInterval(refresh,10000);

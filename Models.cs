@@ -14,7 +14,9 @@ public sealed record ConnectivitySample(
     bool? Tcp443Connected = null,
     string? ProbeEndpoint = null,
     int? HttpStatus = null,
-    double? JitterMs = null);
+    double? JitterMs = null,
+    string? SessionId = null,
+    DateTimeOffset? NextCheckAt = null);
 
 public sealed record SpeedSample(
     DateTimeOffset Timestamp,
@@ -40,7 +42,8 @@ public sealed record ConnectionIdentity(
 
 public sealed class MonitorOptions
 {
-    public int ConnectivityIntervalSeconds { get; set; } = 10;
+    public int ConnectivityIntervalSeconds { get; set; } = 60;
+    public int ConnectivityMaxIntervalSeconds { get; set; } = 3600;
     public int SpeedTestIntervalMinutes { get; set; } = 5;
     public int DownloadMegabytes { get; set; } = 25;
     public int UploadMegabytes { get; set; } = 10;
