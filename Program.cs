@@ -15,10 +15,22 @@ app.Urls.Add(options.DashboardUrl);
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-app.MapGet("/api/connectivity", (SampleStore store, CancellationToken token) =>
-    store.ReadRecentAsync<ConnectivitySample>("connectivity.jsonl", 8640, token));
-app.MapGet("/api/speed-tests", (SampleStore store, CancellationToken token) =>
-    store.ReadRecentAsync<SpeedSample>("speed-tests.jsonl", 2016, token));
+app.MapGet("/api/connectivity", async (int? hours, SampleStore store, CancellationToken token) =>
+{
+    var range = hours ?? 1;
+    if (range < 1 || range > 720) return Results.BadRequest("hours must be between 1 and 720.");
+    var now = DateTimeOffset.UtcNow;
+    return Results.Ok(await store.ReadRangeAsync<ConnectivitySample>("connectivity.jsonl",
+        now.AddHours(-range), now, sample => sample.Timestamp, true, token));
+});
+app.MapGet("/api/speed-tests", async (int? hours, SampleStore store, CancellationToken token) =>
+{
+    var range = hours ?? 1;
+    if (range < 1 || range > 720) return Results.BadRequest("hours must be between 1 and 720.");
+    var now = DateTimeOffset.UtcNow;
+    return Results.Ok(await store.ReadRangeAsync<SpeedSample>("speed-tests.jsonl",
+        now.AddHours(-range), now, sample => sample.Timestamp, false, token));
+});
 app.MapGet("/api/connection-identity", (SampleStore store, CancellationToken token) =>
     store.ReadRecentAsync<ConnectionIdentity>("connection-identity.jsonl", 100, token));
 app.MapGet("/api/status", async (SampleStore store, InternetMonitor monitor, CancellationToken token) =>

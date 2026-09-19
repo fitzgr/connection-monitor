@@ -59,6 +59,14 @@ dotnet publish -c Release -r win-x64 --self-contained true
 
 The executable is placed under `bin\Release\net8.0\win-x64\publish\` and does not require .NET to be installed on the monitoring PC.
 
+## History and selected date range
+
+History is retained on disk without automatic expiration. There is no 48-hour trimming. The dashboard requests the selected interval (1 hour, 6 hours, 24 hours, 7 days, or 30 days), rather than a fixed number of recent records or the entire history.
+
+The connectivity and speed-test APIs accept `?hours=1` through `?hours=720` (default 1). Connectivity responses include the latest sample before the interval to correctly clip a scheduled sleep at the left edge. Session and schedule checks still prevent bridging missing collection time. Speed-test responses contain only measurements inside the interval. Changing the dropdown reloads the data, and older requests cannot overwrite the newly selected view.
+
+Reads stream through saved JSON Lines under the same file-access lock as writes; only the selected records are retained for the response. Files are not rewritten or trimmed. Older history remains available in the local files even when outside the dashboard's 30-day maximum. Previously deleted records cannot be recovered without a backup.
+
 ## Storage reliability
 
 Dashboard reads and sample writes share one file-access lock. External Windows sharing/lock violations are retried five times with short delays (1.5 seconds total). Retries happen only when opening a file, avoiding duplicate records from replaying a partially completed write.

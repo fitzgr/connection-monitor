@@ -53,11 +53,46 @@ public sealed class SampleStore
             if (!File.Exists(path)) return [];
             await using var stream = await OpenWithRetryAsync(path, FileMode.Open, FileAccess.Read, token);
             using var reader = new StreamReader(stream, Encoding.UTF8);
-            var lines = new List<string>();
-            while (await reader.ReadLineAsync(token) is { } line) lines.Add(line);
-            return lines.TakeLast(limit)
+            var lines = new Queue<string>();
+            while (await reader.ReadLineAsync(token) is { } line)
+            {
+                lines.Enqueue(line);
+                if (lines.Count > Math.Max(0, limit)) lines.Dequeue();
+            }
+            return lines
                 .Select(line => JsonSerializer.Deserialize<T>(line, _json))
                 .Where(item => item is not null).Cast<T>().ToArray();
+        }
+        finally { _gate.Release(); }
+    }
+
+    public async Task<IReadOnlyList<T>> ReadRangeAsync<T>(string fileName,
+        DateTimeOffset from, DateTimeOffset to, Func<T, DateTimeOffset> timestamp,
+        bool includePrevious, CancellationToken token) where T : class
+    {
+        await _gate.WaitAsync(token);
+        try
+        {
+            var path = Path.Combine(_dataDirectory, fileName);
+            if (!File.Exists(path)) return [];
+            await using var stream = await OpenWithRetryAsync(path, FileMode.Open, FileAccess.Read, token);
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            var selected = new List<T>();
+            T? previous = null;
+            while (await reader.ReadLineAsync(token) is { } line)
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                var sample = JsonSerializer.Deserialize<T>(line, _json);
+                if (sample is null) continue;
+                var at = timestamp(sample);
+                if (at >= from && at <= to) selected.Add(sample);
+                else if (includePrevious && at < from &&
+                    (previous is null || at > timestamp(previous))) previous = sample;
+            }
+            // One boundary sample lets the graph clip a scheduled sleep at the range start.
+            // Existing session/schedule checks still decide whether it can be bridged.
+            if (previous is not null) selected.Add(previous);
+            return selected.OrderBy(timestamp).ToArray();
         }
         finally { _gate.Release(); }
     }

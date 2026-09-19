@@ -40,7 +40,32 @@ if (OperatingSystem.IsWindows())
         throw new Exception("Storage failure created a false outage.");
 }
 else Console.WriteLine("Windows-only file sharing checks skipped on this OS.");
-Console.WriteLine("Storage checks passed.");
+// Range selection must not truncate at the old API limits or trim the files.
+var end = DateTimeOffset.UtcNow;
+var name = $"range-{Guid.NewGuid():N}.jsonl";
+var rangeFile = Path.Combine(AppContext.BaseDirectory, "data", name);
+var json = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+try
+{
+    var records = Enumerable.Range(0, 10001)
+        .Select(i => new ConnectivitySample(end.AddMinutes(i - 10000), true, 1, null));
+    var original = string.Join("\n", records.Select(s => System.Text.Json.JsonSerializer.Serialize(s, json))) + "\n";
+    await File.WriteAllTextAsync(rangeFile, original);
+    var hour = await store.ReadRangeAsync<ConnectivitySample>(name, end.AddHours(-1), end, s => s.Timestamp, true, default);
+    if (hour.Count != 62 || hour[0].Timestamp != end.AddMinutes(-61) || hour[^1].Timestamp != end)
+        throw new Exception("Incorrect hour range or boundary sample.");
+    var month = await store.ReadRangeAsync<ConnectivitySample>(name, end.AddDays(-30), end, s => s.Timestamp, true, default);
+    if (month.Count != 10001) throw new Exception("History was truncated at a record limit.");
+    var withoutBoundary = await store.ReadRangeAsync<ConnectivitySample>(name, end.AddHours(-1), end, s => s.Timestamp, false, default);
+    if (withoutBoundary.Count != 61) throw new Exception("Unexpected records outside range.");
+    var empty = await store.ReadRangeAsync<ConnectivitySample>(name, end.AddDays(1), end.AddDays(2), s => s.Timestamp, false, default);
+    if (empty.Count != 0) throw new Exception("Empty range returned old records.");
+    var latest = await store.ReadRecentAsync<ConnectivitySample>(name, 1, default);
+    if (latest.Count != 1 || latest[0].Timestamp != end) throw new Exception("Latest sample lookup regressed.");
+    if (await File.ReadAllTextAsync(rangeFile) != original) throw new Exception("Reading modified saved history.");
+}
+finally { File.Delete(rangeFile); }
+Console.WriteLine("Storage and history-range checks passed.");
 
 sealed class SuccessFactory : IHttpClientFactory
 {
