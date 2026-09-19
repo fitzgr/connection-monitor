@@ -11,6 +11,8 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
+      - name: Verify concurrent storage and Windows file-lock recovery
+        run: dotnet run --project tests/StorageChecks.csproj -c Release
       - run: dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
       - uses: actions/upload-artifact@v4
         with:

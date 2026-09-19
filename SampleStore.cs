@@ -46,12 +46,20 @@ public sealed class SampleStore
 
     public async Task<IReadOnlyList<T>> ReadRecentAsync<T>(string fileName, int limit, CancellationToken token)
     {
-        var path = Path.Combine(_dataDirectory, fileName);
-        if (!File.Exists(path)) return [];
-        var lines = await File.ReadAllLinesAsync(path, token);
-        return lines.TakeLast(limit)
-            .Select(line => JsonSerializer.Deserialize<T>(line, _json))
-            .Where(item => item is not null).Cast<T>().ToArray();
+        await _gate.WaitAsync(token);
+        try
+        {
+            var path = Path.Combine(_dataDirectory, fileName);
+            if (!File.Exists(path)) return [];
+            await using var stream = await OpenWithRetryAsync(path, FileMode.Open, FileAccess.Read, token);
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            var lines = new List<string>();
+            while (await reader.ReadLineAsync(token) is { } line) lines.Add(line);
+            return lines.TakeLast(limit)
+                .Select(line => JsonSerializer.Deserialize<T>(line, _json))
+                .Where(item => item is not null).Cast<T>().ToArray();
+        }
+        finally { _gate.Release(); }
     }
 
     private async Task AppendJsonLineAsync<T>(string fileName, T value, CancellationToken token)
@@ -59,8 +67,10 @@ public sealed class SampleStore
         await _gate.WaitAsync(token);
         try
         {
-            await File.AppendAllTextAsync(Path.Combine(_dataDirectory, fileName),
-                JsonSerializer.Serialize(value, _json) + Environment.NewLine, Encoding.UTF8, token);
+            await using var stream = await OpenWithRetryAsync(Path.Combine(_dataDirectory, fileName),
+                FileMode.Append, FileAccess.Write, token);
+            var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value, _json) + Environment.NewLine);
+            await stream.WriteAsync(bytes, token);
         }
         finally { _gate.Release(); }
     }
@@ -71,13 +81,32 @@ public sealed class SampleStore
         try
         {
             var path = Path.Combine(_dataDirectory, fileName);
-            if (!File.Exists(path)) await File.WriteAllTextAsync(path, header + Environment.NewLine, token);
-            await File.AppendAllTextAsync(path, row + Environment.NewLine, token);
+            await using var stream = await OpenWithRetryAsync(path, FileMode.Append, FileAccess.Write, token);
+            var text = (stream.Length == 0 ? header + Environment.NewLine : "") + row + Environment.NewLine;
+            await stream.WriteAsync(Encoding.UTF8.GetBytes(text), token);
         }
         finally { _gate.Release(); }
     }
 
     private static string Number(double? value) => value?.ToString("0.00", CultureInfo.InvariantCulture) ?? "";
+    private static async Task<FileStream> OpenWithRetryAsync(string path, FileMode mode,
+        FileAccess access, CancellationToken token)
+    {
+        // Retry opening only: replaying a write could duplicate a partially saved record.
+        for (var attempt = 0; ; attempt++)
+        {
+            token.ThrowIfCancellationRequested();
+            try
+            {
+                return new FileStream(path, mode, access, FileShare.Read,
+                    4096, FileOptions.Asynchronous);
+            }
+            catch (IOException ex) when (attempt < 5 && (ex.HResult & 0xffff) is 32 or 33)
+            {
+                await Task.Delay(100 * (attempt + 1), token);
+            }
+        }
+    }
     private static string Boolean(bool? value) => value?.ToString().ToLowerInvariant() ?? "";
     private static string Csv(string? value) => value is null ? "" : $"\"{value.Replace("\"", "\"\"")}\"";
 }

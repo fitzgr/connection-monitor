@@ -139,6 +139,7 @@ public sealed class InternetMonitor : BackgroundService
 
     private async Task<bool> RunConnectionIdentityCheckAsync(CancellationToken token)
     {
+        ConnectionIdentity identity;
         try
         {
             using var response = await _clients.CreateClient("identity").GetAsync(ConnectionIdentityUrl, token);
@@ -147,20 +148,17 @@ public sealed class InternetMonitor : BackgroundService
             using var json = await JsonDocument.ParseAsync(stream, cancellationToken: token);
             var root = json.RootElement;
             string? Read(string property) => root.TryGetProperty(property, out var value) ? value.GetString() : null;
-            var identity = new ConnectionIdentity(DateTimeOffset.Now, true, Read("ip"), Read("org"),
+            identity = new(DateTimeOffset.Now, true, Read("ip"), Read("org"),
                 Read("city"), Read("region"), Read("country"), "ipinfo.io", null);
-            await _store.AppendConnectionIdentityAsync(identity, token);
-            _log.LogInformation("Connection provider: {Organization}; public IP: {PublicIp}", identity.Organization, identity.PublicIp);
-            return true;
         }
         catch (Exception ex) when (!token.IsCancellationRequested)
         {
             var error = DescribeFailure(ex, "Provider lookup");
-            await _store.AppendConnectionIdentityAsync(new(DateTimeOffset.Now, false, null, null, null, null, null,
-                "ipinfo.io", error), token);
-            _log.LogWarning("Connection provider lookup failed: {Message}", error);
-            return false;
+            identity = new(DateTimeOffset.Now, false, null, null, null, null, null, "ipinfo.io", error);
+            _log.LogWarning("{Message}", error);
         }
+        var saved = await SaveSampleAsync(() => _store.AppendConnectionIdentityAsync(identity, token), token);
+        return identity.Success && saved;
     }
 
     private async Task<DateTimeOffset> RunConnectivityCheckAsync(CancellationToken token)
@@ -168,38 +166,60 @@ public sealed class InternetMonitor : BackgroundService
         RefreshSession();
         var session = SessionId;
         var started = Stopwatch.StartNew();
+        ConnectivitySample sample;
+        DateTimeOffset nextCheck;
         try
         {
             using var response = await _clients.CreateClient("probe").GetAsync(ProbeUrl, token);
             response.EnsureSuccessStatusCode();
             var timestamp = DateTimeOffset.Now;
             var latency = started.Elapsed.TotalMilliseconds;
-            var nextCheck = ScheduleNext(true, timestamp);
+            nextCheck = ScheduleNext(true, timestamp);
             var maximumJitterGap = TimeSpan.FromSeconds(Math.Max(2, _options.ConnectivityIntervalSeconds) * 3);
             double? jitter = _lastConnectivityLatency.HasValue && _lastConnectivitySuccess.HasValue &&
                 timestamp - _lastConnectivitySuccess.Value <= maximumJitterGap
                     ? Math.Abs(latency - _lastConnectivityLatency.Value)
                     : null;
-            await _store.AppendConnectivityAsync(new(timestamp, true, latency, null,
+            sample = new(timestamp, true, latency, null,
                 ProbeEndpoint: ProbeUrl, HttpStatus: (int)response.StatusCode, JitterMs: jitter,
-                SessionId: session, NextCheckAt: nextCheck), token);
+                SessionId: session, NextCheckAt: nextCheck);
             _lastConnectivityLatency = latency;
             _lastConnectivitySuccess = timestamp;
-            return nextCheck;
         }
         catch (Exception ex) when (!token.IsCancellationRequested)
         {
             var error = DescribeFailure(ex, "Connectivity check");
             var diagnostics = await DiagnoseFailureAsync(token);
-            _log.LogWarning("Connectivity check failed: {Message}", error);
+            _log.LogWarning("{Message}", error);
             var timestamp = DateTimeOffset.Now;
-            var nextCheck = ScheduleNext(false, timestamp);
+            nextCheck = ScheduleNext(false, timestamp);
             _lastConnectivityLatency = null;
             _lastConnectivitySuccess = null;
-            await _store.AppendConnectivityAsync(new(timestamp, false, null, error,
+            sample = new(timestamp, false, null, error,
                 ClassifyFailure(ex), diagnostics.DnsResolved, diagnostics.DnsAddresses,
-                diagnostics.Tcp443Connected, ProbeUrl, SessionId: session, NextCheckAt: nextCheck), token);
-            return nextCheck;
+                diagnostics.Tcp443Connected, ProbeUrl, SessionId: session, NextCheckAt: nextCheck);
+        }
+        // Disk errors must never be reclassified as failed HTTP probes.
+        if (!await SaveSampleAsync(() => _store.AppendConnectivityAsync(sample, token), token))
+        {
+            lock (_sessionGate) SessionId = Guid.NewGuid().ToString("N");
+            _successes = 0;
+            nextCheck = DateTimeOffset.Now.AddSeconds(Math.Clamp(_options.ConnectivityIntervalSeconds, 1, 60));
+        }
+        return nextCheck;
+    }
+
+    private async Task<bool> SaveSampleAsync(Func<Task> save, CancellationToken token)
+    {
+        try
+        {
+            await save();
+            return true;
+        }
+        catch (Exception ex) when (!token.IsCancellationRequested && ex is IOException or UnauthorizedAccessException)
+        {
+            _log.LogError(ex, "Recording failed: sample may be missing or only partially saved. Monitoring will continue; this is a storage error, not a connection failure.");
+            return false;
         }
     }
 
@@ -228,7 +248,7 @@ public sealed class InternetMonitor : BackgroundService
         if (!success) _requestFastCheck = true;
         var sample = new SpeedSample(DateTimeOffset.Now, success, latency, jitter, download, upload,
             overall.Elapsed.TotalSeconds, failedPhase, error);
-        await _store.AppendSpeedAsync(sample, token);
+        await SaveSampleAsync(() => _store.AppendSpeedAsync(sample, token), token);
         if (success) _log.LogInformation("Speed test: {Down:F1} down / {Up:F1} up Mbps", download, upload);
         else _log.LogWarning("Speed test failed during {Phase}; completed phase results were retained: {Message}", failedPhase, error);
     }

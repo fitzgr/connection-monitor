@@ -59,6 +59,14 @@ dotnet publish -c Release -r win-x64 --self-contained true
 
 The executable is placed under `bin\Release\net8.0\win-x64\publish\` and does not require .NET to be installed on the monitoring PC.
 
+## Storage reliability
+
+Dashboard reads and sample writes share one file-access lock. External Windows sharing/lock violations are retried five times with short delays (1.5 seconds total). Retries happen only when opening a file, avoiding duplicate records from replaying a partially completed write.
+
+If saving still fails, the monitor logs a **Recording failed** storage error and continues. It does not convert a successful HTTP check into an outage. A failed connectivity save breaks timeline continuity and returns checking to the minimum interval. A record may be missing or partially saved across JSON/CSV files; these errors do not prove an internet failure. Existing history is retained.
+
+The Windows build runs storage regression checks with concurrent dashboard reads/writes, a temporary exclusive file lock, and a persistent lock during a successful HTTP probe.
+
 ## Notes
 
 Measurements use Cloudflare's public speed-test endpoints. Results are intended to document trends, failures, and degraded periods rather than reproduce Bell's exact server-to-modem test. Because this app runs on the tenant's computer, it measures the complete path—including Wi-Fi or Ethernet—and cannot isolate Bell's line from the landlord's router by itself.
