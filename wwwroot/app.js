@@ -63,7 +63,75 @@ const $=id=>document.getElementById(id), css=n=>getComputedStyle(document.docume
 function size(c){const d=devicePixelRatio||1,r=c.getBoundingClientRect();c.width=r.width*d;c.height=r.height*d;return[c.getContext('2d'),r.width,r.height,d]}
 function axes(g,w,h,d,max,rightMax){g.scale(d,d);g.strokeStyle=css('--line');g.fillStyle=css('--muted');g.font='11px system-ui';for(let i=0;i<5;i++){let y=15+(h-40)*i/4;g.beginPath();g.moveTo(42,y);g.lineTo(w-42,y);g.stroke();g.fillText(Math.round(max*(4-i)/4),5,y+4);g.fillText(Math.round(rightMax*(4-i)/4),w-34,y+4)}g.fillText('Mbps',4,10);g.fillText('ms',w-22,10)}
 function outageWindows(items){return connectionPeriods(items,-Infinity,Date.now()).filter(p=>!p.online)}
-function speedChart(items,connectivity){const c=$('speedChart'),[g,w,h,d]=size(c),hours=+$('range').value,cut=Date.now()-hours*3600000,data=items.filter(x=>new Date(x.timestamp)>=cut);g.clearRect(0,0,c.width,c.height);const actual=(s,key)=>s[key]!=null&&Number.isFinite(Number(s[key]));let max=Math.max(10,...data.flatMap(s=>['downloadMbps','uploadMbps'].filter(key=>actual(s,key)).map(key=>Number(s[key]))))*1.1,rightMax=Math.max(50,...data.flatMap(s=>['latencyMs','jitterMs'].filter(key=>actual(s,key)).map(key=>Number(s[key]))))*1.1;axes(g,w,h,d,max,rightMax);const x=t=>42+(new Date(t)-cut)/(hours*3600000)*(w-84),y=v=>15+(h-40)*(1-v/max),yr=v=>15+(h-40)*(1-v/rightMax),series=(key,color,dash,scale,points=false)=>{g.setLineDash(dash);g.strokeStyle=color;g.lineWidth=2;for(let i=1;i<data.length;i++){const previous=data[i-1],current=data[i];if(!actual(previous,key)||!actual(current,key))continue;g.beginPath();g.moveTo(x(previous.timestamp),scale(Number(previous[key])));g.lineTo(x(current.timestamp),scale(Number(current[key])));g.stroke()}if(points){g.setLineDash([]);g.fillStyle=color;for(const sample of data){if(!actual(sample,key))continue;g.beginPath();g.arc(x(sample.timestamp),scale(Number(sample[key])),3,0,Math.PI*2);g.fill()}}};for(const outage of outageWindows(connectivity).filter(o=>o.end>=cut)){const left=Math.max(42,x(Math.max(cut,outage.start))),right=Math.min(w-42,x(outage.end));g.fillStyle=css('--red')+'55';g.fillRect(left,15,Math.max(2,right-left),h-40)}for(const s of data.filter(x=>!x.success)){g.fillStyle=css('--red')+'aa';g.fillRect(x(s.timestamp)-2,15,4,h-40)}series('downloadMbps',css('--blue'),[],y);series('uploadMbps',css('--green'),[],y);series('latencyMs',css('--amber'),[],yr,true);series('jitterMs',css('--purple'),[6,4],yr,true);g.setLineDash([])}
+function speedHoverTarget(points,bands,px,py){
+  let nearest=null,distance=12;
+  for(const point of points){
+    const delta=Math.hypot(point.x-px,point.y-py);
+    if(delta<=distance){nearest=point;distance=delta}
+  }
+  return nearest||bands.find(b=>px>=b.left&&px<=b.right&&py>=b.top&&py<=b.bottom)||null;
+}
+function speedChart(items,connectivity){
+  const c=$('speedChart'),[g,w,h,d]=size(c),hours=+$('range').value,now=Date.now(),cut=now-hours*3600000;
+  const data=items.filter(s=>new Date(s.timestamp)>=cut&&new Date(s.timestamp)<=now),points=[],bands=[];
+  let tooltip=$('speedTooltip');
+  if(!tooltip){
+    tooltip=document.createElement('div');tooltip.id='speedTooltip';tooltip.className='chart-tooltip';
+    tooltip.setAttribute('role','tooltip');document.body.appendChild(tooltip);
+  }
+  const hide=()=>{tooltip.hidden=true;c.style.cursor='default'};
+  hide();
+  const date=t=>new Intl.DateTimeFormat(undefined,{weekday:'short',year:'numeric',month:'short',day:'numeric',
+    hour:'2-digit',minute:'2-digit',second:'2-digit',timeZoneName:'short'}).format(new Date(t));
+  const actual=(s,key)=>s[key]!=null&&Number.isFinite(Number(s[key]));
+  const measurements=[['downloadMbps','Download','Mbps','--blue'],['uploadMbps','Upload','Mbps','--green'],
+    ['latencyMs','Latency','ms','--amber'],['jitterMs','Jitter','ms','--purple']];
+  const details=s=>measurements.map(([key,label,unit])=>`${label}: ${actual(s,key)?Number(s[key]).toFixed(2)+' '+unit:'Not collected'}`).join('\n');
+  const testText=s=>`${date(s.timestamp)}\n${s.success?'Completed speed test':'Failed speed test'+(s.failedPhase?' · '+s.failedPhase:'')}\n${details(s)}${s.durationSeconds!=null?'\nTest duration: '+Number(s.durationSeconds).toFixed(1)+' seconds':''}${s.error?'\n'+s.error:''}`;
+  g.clearRect(0,0,c.width,c.height);
+  const max=Math.max(10,...data.flatMap(s=>['downloadMbps','uploadMbps'].filter(k=>actual(s,k)).map(k=>Number(s[k]))))*1.1;
+  const rightMax=Math.max(50,...data.flatMap(s=>['latencyMs','jitterMs'].filter(k=>actual(s,k)).map(k=>Number(s[k]))))*1.1;
+  axes(g,w,h,d,max,rightMax);
+  const x=t=>42+(new Date(t)-cut)/(hours*3600000)*(w-84),y=v=>15+(h-40)*(1-v/max),yr=v=>15+(h-40)*(1-v/rightMax);
+  for(const outage of outageWindows(connectivity).filter(o=>o.end>=cut)){
+    const left=Math.max(42,x(Math.max(cut,outage.start))),right=Math.min(w-42,Math.max(left+2,x(outage.end)));
+    const last=outage.samples.at(-1);
+    g.fillStyle=css('--red')+'55';g.fillRect(left,15,right-left,h-40);
+    bands.push({left,right,top:15,bottom:h-25,text:`Connectivity failure\nDetected: ${date(outage.start)}\n${outage.current?'Ongoing as of':outage.complete?'Recovery detected':'Last covered time'}: ${date(outage.end)}\nEstimated duration: ${Math.round(outage.duration/1000)} seconds${last?.failureType?'\nFailure: '+last.failureType:''}${last?.probeEndpoint?'\nEndpoint: '+last.probeEndpoint:''}${last?.error?'\n'+last.error:''}\nBased on recorded checks; intervals may include scheduled sleeps.`});
+  }
+  for(const s of data.filter(s=>!s.success)){
+    const left=x(s.timestamp)-2;g.fillStyle=css('--red')+'aa';g.fillRect(left,15,4,h-40);
+    bands.unshift({left:left-3,right:left+7,top:15,bottom:h-25,text:testText(s)});
+  }
+  for(const [key,label,unit,color] of measurements){
+    const scale=unit==='Mbps'?y:yr;
+    g.setLineDash(key==='jitterMs'?[6,4]:[]);g.strokeStyle=css(color);g.lineWidth=2;
+    for(let i=1;i<data.length;i++){
+      const a=data[i-1],b=data[i];
+      if(!actual(a,key)||!actual(b,key))continue;
+      g.beginPath();g.moveTo(x(a.timestamp),scale(Number(a[key])));g.lineTo(x(b.timestamp),scale(Number(b[key])));g.stroke();
+    }
+    g.setLineDash([]);g.fillStyle=css(color);
+    for(const s of data){
+      if(!actual(s,key))continue;
+      const px=x(s.timestamp),py=scale(Number(s[key]));
+      g.beginPath();g.arc(px,py,3,0,Math.PI*2);g.fill();
+      points.push({x:px,y:py,text:`${label}: ${Number(s[key]).toFixed(2)} ${unit}\n${testText(s)}`});
+    }
+  }
+  c.onpointermove=e=>{
+    const rect=c.getBoundingClientRect(),px=(e.clientX-rect.left)*w/rect.width,py=(e.clientY-rect.top)*h/rect.height;
+    const hit=speedHoverTarget(points,bands,px,py);
+    if(!hit){hide();return}
+    tooltip.textContent=hit.text;tooltip.hidden=false;c.style.cursor='crosshair';
+    const box=tooltip.getBoundingClientRect(),margin=8;
+    let left=e.clientX+14,top=e.clientY+14;
+    if(left+box.width>innerWidth-margin)left=e.clientX-box.width-14;
+    if(top+box.height>innerHeight-margin)top=e.clientY-box.height-14;
+    tooltip.style.left=Math.max(margin,left)+'px';tooltip.style.top=Math.max(margin,top)+'px';
+  };
+  c.onpointerleave=hide;c.onpointercancel=hide;
+}
 function uptimeChart(items){
   const c=$('uptimeChart'),[g,w,h,d]=size(c),hours=+$('range').value,now=Date.now(),cut=now-hours*3600000;
   const periods=connectionPeriods(items,cut,now),barY=6,barHeight=20,x=t=>(t-cut)/(now-cut)*w;

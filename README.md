@@ -12,6 +12,10 @@ The combined chart plots download and upload speed against the left Mbps axis. L
 
 ## Reading the connectivity timeline
 
+On the **Speed, latency and outages** graph, hover over a download, upload, latency, or jitter point for a popup with its value and units, weekday, full date, time including seconds, and local time-zone label. The popup includes the other measurements from that test, its completion/failure status, duration, and any recorded error. Missing measurements say **Not collected**. Dots mark actual measurements; hovering an interpolated line does not invent a reading.
+
+Hover over a red failure marker or connectivity-failure band for the event's recorded timing and failure details. Connectivity durations are estimates; the popup distinguishes recovery, an ongoing period, and the last covered time.
+
 The timeline heading identifies the interval selected in the graph dropdown (default: **1 hour — detailed**). Its coverage text shows how much of that interval has recorded observations. Periods when the app was not collecting data are unobserved gaps, not assumed uptime or outages.
 
 - **Connected** and **Outage** show accumulated durations within the selected interval. Their percentages use covered time (including estimated scheduled sleeps) only: connected time divided by connected plus outage time, and outage time divided by the same total.

@@ -1,0 +1,11 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const code=fs.readFileSync(path.join(__dirname,'../wwwroot/app.js'),'utf8');
+const context=vm.createContext({});
+vm.runInContext(code.slice(code.indexOf('function speedHoverTarget('),code.indexOf('function speedChart(')),context);
+const point={x:100,y:50,text:'Measured latency'},band={left:90,right:110,top:15,bottom:100,text:'Failure'};
+assert.equal(context.speedHoverTarget([point],[band],102,51),point);
+assert.equal(context.speedHoverTarget([point],[band],100,90),band);
+assert.equal(context.speedHoverTarget([point],[band],150,50),null);
+assert.equal(context.speedHoverTarget([],[],100,50),null);
+assert.equal(context.speedHoverTarget([{x:0,y:0}],[],0,0).x,0);
+console.log('Hover selection passed: nearest measured point, failure band fallback, empty space, and zero coordinates.');
