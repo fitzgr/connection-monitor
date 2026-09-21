@@ -135,6 +135,8 @@ function speedChart(items,connectivity){
 function uptimeChart(items){
   const c=$('uptimeChart'),[g,w,h,d]=size(c),hours=+$('range').value,now=Date.now(),cut=now-hours*3600000;
   const periods=connectionPeriods(items,cut,now),barY=6,barHeight=20,x=t=>(t-cut)/(now-cut)*w;
+  const checks=items.filter(s=>s.online&&new Date(s.timestamp)>=cut&&new Date(s.timestamp)<=now)
+    .map(s=>({sample:s,x:x(new Date(s.timestamp).getTime())}));
   g.scale(d,d);g.fillStyle=css('--unobserved');g.fillRect(0,barY,w,barHeight);
   g.font='bold 10px system-ui';
   for(const p of periods){
@@ -151,8 +153,26 @@ function uptimeChart(items){
     g.textAlign='center';g.textBaseline='middle';g.fillText(label,labelX,labelY);g.restore();
   }
   g.textAlign='left';g.textBaseline='alphabetic';g.fillStyle=css('--muted');g.font='10px system-ui';
+  // Ticks mark real checks, never synthetic checks during a scheduled sleep.
+  g.save();g.beginPath();g.rect(0,barY,w,barHeight);g.clip();
+  g.strokeStyle='#126347';g.lineWidth=2;g.setLineDash([]);
+  for(const check of checks){
+    g.beginPath();g.moveTo(check.x,barY+1);g.lineTo(check.x,barY+barHeight-1);g.stroke();
+  }
+  g.restore();
+  g.fillText('Dark green ticks: actual checks · Wider spacing: less frequent testing',0,h-20);
   g.fillText(`${hours} hours ago`,0,h-2);g.fillText('Now',w-22,h-2);
   c.onmousemove=e=>{
+    const rect=c.getBoundingClientRect(),mx=(e.clientX-rect.left)*w/rect.width,my=(e.clientY-rect.top)*h/rect.height;
+    const check=my>=barY&&my<=barY+barHeight?checks.reduce((best,v)=>
+      Math.abs(v.x-mx)<=5&&(!best||Math.abs(v.x-mx)<Math.abs(best.x-mx))?v:best,null):null;
+    if(check){
+      const s=check.sample,at=new Date(s.timestamp),next=s.nextCheckAt?new Date(s.nextCheckAt):null;
+      const interval=next&&next>at?elapsed(next-at):'Not recorded';
+      const format=t=>t.toLocaleString(undefined,{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',timeZoneName:'short'});
+      c.title=`Successful connectivity check\n${format(at)}\nScheduled interval: ${interval}${next?'\nNext scheduled check: '+format(next):''}`;
+      return;
+    }
     const t=cut+e.offsetX/w*(now-cut),p=periods.find(p=>t>=p.start&&t<=p.end);
     c.title=p?`${p.online?'Connected':'Outage'}: ${Math.round(p.duration/1000)} seconds (estimated)${p.current?' — ongoing':''}${p.clipped?' — visible portion':!p.complete&&!p.current?' — partial observation':''}`:'No observations';
   };

@@ -22,6 +22,7 @@ The timeline heading identifies the interval selected in the graph dropdown (def
 - **Estimated uptime** is the connected percentage. Coverage is a separate percentage of the entire selected interval.
 - **Average uptime / Average outage** summarize completed observed connection periods. **Longest uptime / Longest outage** show the longest recorded periods in view; **Current streak** shows the ongoing up or down period when recent observations are available.
 - Light mint sections indicate connected periods; striped coral sections indicate outages. Muted sections represent unobserved time.
+- Dark-green ticks on the connectivity strip mark actual successful HTTP connectivity checks. Their spacing increases as adaptive testing backs off; no extra ticks are invented during sleeps. Hover near a tick for its date/time, scheduled interval, and next scheduled check. Period-duration labels and hover details remain available between ticks.
 
 Durations in seconds are displayed horizontally beneath the timeline sections without a unit suffix. Connected durations share the upper mint row; outage durations share a separate lower coral row. Numbers may extend beyond narrow sections and overlap in crowded views. **Hover over a section to see its duration in seconds**, including whether it is ongoing, a visible portion clipped by the selected range, or a partial observation. Durations are estimates from recorded checks, not exact packet-level transition times.
 
